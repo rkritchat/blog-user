@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/rkritchat/blog-user/internal/config"
+	"github.com/rkritchat/blog-user/internal/repository"
 	"net/http"
 )
 
@@ -13,14 +15,20 @@ const (
 )
 
 type Service interface {
-	CreateUser(req events.APIGatewayProxyRequest) (*events.APIGatewayProxyResponse, error)
+	CreateUser(event events.APIGatewayProxyRequest) (*events.APIGatewayProxyResponse, error)
+	GetUser(event events.APIGatewayProxyRequest) (*events.APIGatewayProxyResponse, error)
 }
 
 type service struct {
+	userRepo repository.User
+	env      config.Env
 }
 
-func NewService() Service {
-	return &service{}
+func NewService(userRepo repository.User, env config.Env) Service {
+	return &service{
+		userRepo: userRepo,
+		env:      env,
+	}
 }
 
 type CreateUserReq struct {
@@ -29,7 +37,7 @@ type CreateUserReq struct {
 	Firstname string `json:"firstname"`
 	Lastname  string `json:"lastname"`
 }
-type CreateUserResp struct {
+type CommonResp struct {
 	Status  string `json:"status"`
 	Message string `json:"message,omitempty"`
 }
@@ -38,12 +46,31 @@ func (s service) CreateUser(event events.APIGatewayProxyRequest) (*events.APIGat
 	req, err := validateReq(event)
 	if err != nil {
 		fmt.Printf("validateReq: %v", err)
-		return s.toJson(CreateUserResp{Status: statusFailed}, http.StatusBadRequest)
+		return s.toJson(CommonResp{Status: statusFailed}, http.StatusBadRequest)
 	}
 	fmt.Printf("firstname: %v", req.Firstname)
-	return s.toJson(CreateUserResp{Status: statusOK}, http.StatusOK)
+	return s.toJson(CommonResp{Status: statusOK}, http.StatusOK)
 }
 
+func (s service) GetUser(event events.APIGatewayProxyRequest) (*events.APIGatewayProxyResponse, error) {
+	//validate request
+	email := event.QueryStringParameters["email"]
+	if len(email) == 0 {
+		return s.toJson(CommonResp{Status: statusFailed, Message: "email is required"}, http.StatusBadRequest)
+	}
+
+	fmt.Printf("email:%v\n", email)
+	//get email by id
+	entity, err := s.userRepo.GetUserByEmail(email)
+	if err != nil {
+		return s.toJson(CommonResp{Status: statusFailed, Message: "internal server error"}, http.StatusInternalServerError)
+	}
+
+	if entity == nil {
+		return s.toJson(CommonResp{Status: statusFailed, Message: "Email is not found"}, http.StatusBadRequest)
+	}
+	return s.toJson(entity, http.StatusOK)
+}
 func validateReq(event events.APIGatewayProxyRequest) (*CreateUserReq, error) {
 	var req CreateUserReq
 	err := json.Unmarshal([]byte(event.Body), &req)

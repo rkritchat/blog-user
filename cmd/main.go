@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/rkritchat/blog-user/internal/config"
+	"github.com/rkritchat/blog-user/internal/repository"
 	"github.com/rkritchat/blog-user/internal/user"
 	"github.com/rkritchat/jsonmask"
 	"net/http"
@@ -18,13 +19,18 @@ func main() {
 	cfg := config.InitConfig()
 	defer cfg.Free()
 
-	userService = user.NewService()
+	//init repository
+	userRepo := repository.NewUser(cfg.DB, cfg.Env.DynamoTableName)
+
+	userService = user.NewService(userRepo, cfg.Env)
 	lambda.Start(handler)
 }
 
 func handler(_ context.Context, req events.APIGatewayProxyRequest) (*events.APIGatewayProxyResponse, error) {
 	reqLogger(req)
 	switch req.HTTPMethod {
+	case http.MethodGet:
+		return userService.GetUser(req)
 	case http.MethodPost:
 		return userService.CreateUser(req)
 	default:
