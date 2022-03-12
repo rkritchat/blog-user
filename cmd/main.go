@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/rkritchat/blog-user/internal/config"
 	"github.com/rkritchat/blog-user/internal/user"
 	"github.com/rkritchat/jsonmask"
 	"net/http"
@@ -13,6 +14,10 @@ import (
 var userService user.Service
 
 func main() {
+	//init config
+	cfg := config.InitConfig()
+	defer cfg.Free()
+
 	userService = user.NewService()
 	lambda.Start(handler)
 }
