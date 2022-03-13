@@ -2,6 +2,7 @@ package user
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/rkritchat/blog-user/internal/config"
@@ -10,8 +11,14 @@ import (
 )
 
 const (
-	statusOK     = "SUCCESS"
-	statusFailed = "FAILED"
+	statusOK            = "Success"
+	statusFailed        = "Fail"
+	internalServerErr   = "internal server error"
+	emailIsRequired     = "email is required"
+	emailIsNotFound     = "email is not found"
+	emailIsAlreadyExist = "email is already exist"
+	firstnameIsRequired = "firstname is required"
+	lastnameIsRequired  = "lastname is required"
 )
 
 type Service interface {
@@ -46,9 +53,29 @@ func (s service) CreateUser(event events.APIGatewayProxyRequest) (*events.APIGat
 	req, err := validateReq(event)
 	if err != nil {
 		fmt.Printf("validateReq: %v", err)
-		return s.toJson(CommonResp{Status: statusFailed}, http.StatusBadRequest)
+		return s.toJson(CommonResp{Status: statusFailed, Message: err.Error()}, http.StatusBadRequest)
 	}
-	fmt.Printf("firstname: %v", req.Firstname)
+
+	//check if email is exist
+	entity, err := s.userRepo.GetUserByEmail(req.Email)
+	if err != nil {
+		return s.toJson(CommonResp{Status: statusFailed, Message: internalServerErr}, http.StatusInternalServerError)
+	}
+	if entity != nil {
+		return s.toJson(CommonResp{Status: statusFailed, Message: emailIsAlreadyExist}, http.StatusBadRequest)
+	}
+
+	//create user
+	entity = &repository.UserEntity{
+		Id:        req.Email,
+		Firstname: req.Firstname,
+		Lastname:  req.Lastname,
+	}
+	err = s.userRepo.Create(entity)
+	if err != nil {
+		return s.toJson(CommonResp{Status: statusFailed, Message: internalServerErr}, http.StatusInternalServerError)
+	}
+
 	return s.toJson(CommonResp{Status: statusOK}, http.StatusOK)
 }
 
@@ -63,20 +90,32 @@ func (s service) GetUser(event events.APIGatewayProxyRequest) (*events.APIGatewa
 	//get email by id
 	entity, err := s.userRepo.GetUserByEmail(email)
 	if err != nil {
-		return s.toJson(CommonResp{Status: statusFailed, Message: "internal server error"}, http.StatusInternalServerError)
+		fmt.Printf("err: %v", err)
+		return s.toJson(CommonResp{Status: statusFailed, Message: internalServerErr}, http.StatusInternalServerError)
 	}
-
 	if entity == nil {
-		return s.toJson(CommonResp{Status: statusFailed, Message: "Email is not found"}, http.StatusBadRequest)
+		fmt.Printf("email: %v is not found", email)
+		return s.toJson(CommonResp{Status: statusFailed, Message: emailIsNotFound}, http.StatusBadRequest)
 	}
 	return s.toJson(entity, http.StatusOK)
 }
+
 func validateReq(event events.APIGatewayProxyRequest) (*CreateUserReq, error) {
 	var req CreateUserReq
 	err := json.Unmarshal([]byte(event.Body), &req)
 	if err != nil {
 		fmt.Printf("invalid request json: %v", err)
 		return nil, err
+	}
+
+	if len(req.Email) == 0 {
+		return nil, errors.New(emailIsRequired)
+	}
+	if len(req.Firstname) == 0 {
+		return nil, errors.New(firstnameIsRequired)
+	}
+	if len(req.Lastname) == 0 {
+		return nil, errors.New(lastnameIsRequired)
 	}
 	return &req, nil
 }
